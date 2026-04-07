@@ -16,6 +16,20 @@ interface Campaign {
   _count: { contributions: number };
 }
 
+interface AjoGroup {
+  id: string;
+  slug: string;
+  name: string;
+  contributionAmount: number;
+  frequency: string;
+  maxMembers: number;
+  status: string;
+  currentCycleNum: number;
+  startDate: string;
+  createdAt: string;
+  _count: { members: number };
+}
+
 function formatNaira(kobo: number) {
   return new Intl.NumberFormat("en-NG", {
     style: "currency",
@@ -35,6 +49,7 @@ function getInitials(name: string) {
 export default function DashboardPage() {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [ajoGroups, setAjoGroups] = useState<AjoGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [organizerName, setOrganizerName] = useState("");
 
@@ -49,19 +64,30 @@ export default function DashboardPage() {
       const organizer = JSON.parse(localStorage.getItem("organizer") || "{}");
       setOrganizerName(organizer.name || "");
 
-      const res = await fetch("/api/campaigns", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const [campaignRes, ajoRes] = await Promise.all([
+        fetch("/api/campaigns", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch("/api/ajo", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
 
-      if (res.status === 401) {
+      if (campaignRes.status === 401) {
         localStorage.removeItem("token");
         localStorage.removeItem("organizer");
         router.push("/login");
         return;
       }
 
-      const data = await res.json();
-      setCampaigns(data.campaigns || []);
+      const campaignData = await campaignRes.json();
+      setCampaigns(campaignData.campaigns || []);
+
+      if (ajoRes.ok) {
+        const ajoData = await ajoRes.json();
+        const allGroups = [...(ajoData.created || []), ...(ajoData.joined || [])];
+        setAjoGroups(allGroups);
+      }
     } catch {
       // ignore
     } finally {
@@ -91,6 +117,9 @@ export default function DashboardPage() {
   const totalTarget = campaigns.reduce((s, c) => s + c.targetAmount, 0);
   const totalContributors = campaigns.reduce((s, c) => s + c._count.contributions, 0);
   const activeCampaigns = campaigns.filter((c) => c.isActive).length;
+
+  const activeAjoGroups = ajoGroups.filter((g) => g.status === "ACTIVE").length;
+  const totalAjoMembers = ajoGroups.reduce((s, g) => s + g._count.members, 0);
 
   return (
     <div className="min-h-screen">
@@ -129,7 +158,7 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-500">Here&apos;s an overview of your activity</p>
         </div>
 
-        {/* Stat Cards */}
+        {/* Stat Cards – Campaigns */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] p-4 sm:p-5">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center mb-3">
@@ -168,6 +197,39 @@ export default function DashboardPage() {
             <p className="text-base sm:text-2xl font-bold text-white mt-0.5 truncate">{formatNaira(totalTarget)}</p>
           </div>
         </div>
+
+        {/* Stat Cards – Ajo */}
+        {ajoGroups.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <div className="bg-[#1a1d27] rounded-2xl border border-violet-500/10 p-4 sm:p-5">
+              <div className="w-9 h-9 rounded-xl bg-violet-500/10 flex items-center justify-center mb-3">
+                <svg className="w-4.5 h-4.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <p className="text-[11px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Ajo Groups</p>
+              <p className="text-lg sm:text-2xl font-bold text-white mt-0.5">{ajoGroups.length}</p>
+            </div>
+            <div className="bg-[#1a1d27] rounded-2xl border border-violet-500/10 p-4 sm:p-5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center mb-3">
+                <svg className="w-4.5 h-4.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-[11px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Active Ajo</p>
+              <p className="text-lg sm:text-2xl font-bold text-white mt-0.5">{activeAjoGroups}</p>
+            </div>
+            <div className="bg-[#1a1d27] rounded-2xl border border-violet-500/10 p-4 sm:p-5">
+              <div className="w-9 h-9 rounded-xl bg-teal-500/10 flex items-center justify-center mb-3">
+                <svg className="w-4.5 h-4.5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+              </div>
+              <p className="text-[11px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Ajo Members</p>
+              <p className="text-lg sm:text-2xl font-bold text-white mt-0.5">{totalAjoMembers}</p>
+            </div>
+          </div>
+        )}
 
         {/* Quick Actions Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -299,6 +361,91 @@ export default function DashboardPage() {
                         />
                       </div>
                       <p className="text-right text-[11px] font-medium text-gray-500">{Math.round(progress)}%</p>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Ajo Groups Section */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg sm:text-xl font-bold text-white">My Ajo Groups</h2>
+              {activeAjoGroups > 0 && (
+                <span className="text-[11px] px-2.5 py-1 rounded-full font-semibold bg-violet-500/10 text-violet-400">
+                  {activeAjoGroups} active
+                </span>
+              )}
+            </div>
+          </div>
+
+          {ajoGroups.length === 0 ? (
+            <div className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] p-10 sm:p-14 text-center">
+              <div className="w-16 h-16 bg-[#232734] rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-gray-300 mb-1">No Ajo groups yet</h3>
+              <p className="text-gray-500 text-sm mb-4">
+                Create or join a rotational savings group.
+              </p>
+              <Link
+                href="/ajo"
+                className="inline-flex items-center gap-1.5 text-violet-400 hover:text-violet-300 text-sm font-semibold transition"
+              >
+                Get started
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+              </Link>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2">
+              {ajoGroups.map((group) => {
+                const statusColors: Record<string, string> = {
+                  PENDING: "bg-amber-500/10 text-amber-400",
+                  ACTIVE: "bg-emerald-500/10 text-emerald-400",
+                  COMPLETED: "bg-teal-500/10 text-teal-400",
+                  CANCELLED: "bg-gray-800 text-gray-500",
+                };
+                return (
+                  <Link
+                    key={group.id}
+                    href={`/ajo/${group.id}`}
+                    className="group relative bg-[#1a1d27] rounded-2xl border border-white/[0.06] p-5 sm:p-6 hover:border-violet-500/30 hover:shadow-lg hover:shadow-violet-500/5 hover:-translate-y-0.5 transition-all duration-300 block overflow-hidden"
+                  >
+                    <div className={`absolute top-0 left-0 right-0 h-1 ${group.status === "ACTIVE" ? "bg-gradient-to-r from-violet-500 to-purple-400" : group.status === "PENDING" ? "bg-gradient-to-r from-amber-500 to-yellow-400" : "bg-gray-700"}`} />
+
+                    <div className="flex items-start justify-between mb-3 pt-1">
+                      <div className="min-w-0 flex-1 pr-3">
+                        <h3 className="font-bold text-white group-hover:text-violet-400 transition truncate text-sm sm:text-base">
+                          {group.name}
+                        </h3>
+                        <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            {group._count.members} / {group.maxMembers}
+                          </span>
+                          <span>·</span>
+                          <span>{group.frequency}</span>
+                          <span>·</span>
+                          <span>Cycle {group.currentCycleNum}</span>
+                        </p>
+                      </div>
+                      <span className={`text-[10px] sm:text-[11px] px-2 sm:px-2.5 py-1 rounded-full font-semibold flex-shrink-0 ${statusColors[group.status] || "bg-gray-800 text-gray-500"}`}>
+                        {group.status}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500 text-xs">Contribution</span>
+                      <span className="font-bold text-white text-sm sm:text-base">{formatNaira(group.contributionAmount)}</span>
                     </div>
                   </Link>
                 );
