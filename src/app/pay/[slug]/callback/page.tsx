@@ -1,10 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 export default function CallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-14 h-14 border-[3px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <CallbackContent />
+    </Suspense>
+  );
+}
+
+function CallbackContent() {
   const searchParams = useSearchParams();
   const reference = searchParams.get("reference") || searchParams.get("trxref");
   const [status, setStatus] = useState<"loading" | "success" | "failed">(
