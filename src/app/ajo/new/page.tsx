@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, FormEvent, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 export default function NewAjoGroupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [contributionAmount, setContributionAmount] = useState("");
@@ -14,6 +15,100 @@ export default function NewAjoGroupPage() {
   const [startDate, setStartDate] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Subscription state
+  const [subscriptionActive, setSubscriptionActive] = useState<boolean | null>(null);
+  const [subscriptionEndDate, setSubscriptionEndDate] = useState<string | null>(null);
+  const [subLoading, setSubLoading] = useState(true);
+  const [subPayLoading, setSubPayLoading] = useState(false);
+
+  const checkSubscription = useCallback(async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    try {
+      const res = await fetch("/api/subscription/status", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setSubscriptionActive(data.active);
+      setSubscriptionEndDate(data.endDate || null);
+    } catch {
+      setSubscriptionActive(false);
+    } finally {
+      setSubLoading(false);
+    }
+  }, [router]);
+
+  // On mount: check subscription, and verify if returning from payment
+  useEffect(() => {
+    const subscriptionRef = searchParams.get("subscription_ref");
+    if (subscriptionRef) {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
+      setSubLoading(true);
+      fetch("/api/subscription/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reference: subscriptionRef }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.status === "active") {
+            setSubscriptionActive(true);
+            setSubscriptionEndDate(data.endDate);
+          } else {
+            setError("Subscription payment could not be verified. Please try again.");
+            checkSubscription();
+          }
+        })
+        .catch(() => {
+          setError("Failed to verify subscription payment.");
+          checkSubscription();
+        })
+        .finally(() => setSubLoading(false));
+    } else {
+      checkSubscription();
+    }
+  }, [searchParams, router, checkSubscription]);
+
+  async function handleSubscribe() {
+    setSubPayLoading(true);
+    setError("");
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    try {
+      const res = await fetch("/api/subscription/initialize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to initialize subscription payment");
+        return;
+      }
+      // Redirect to Paystack payment page
+      window.location.href = data.authorization_url;
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSubPayLoading(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -77,6 +172,80 @@ export default function NewAjoGroupPage() {
       <main className="max-w-2xl mx-auto px-6 py-8">
         <h1 className="text-2xl font-bold text-white mb-1">Create Ajo Group</h1>
         <p className="text-sm text-gray-500 mb-6">Set up a rotational savings group for your members</p>
+
+        {/* Subscription loading */}
+        {subLoading && (
+          <div className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] p-8 flex items-center justify-center">
+            <svg className="w-5 h-5 animate-spin text-emerald-400 mr-3" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <span className="text-sm text-gray-400">Checking subscription status…</span>
+          </div>
+        )}
+
+        {/* Subscription required prompt */}
+        {!subLoading && !subscriptionActive && (
+          <div className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] overflow-hidden">
+            <div className="p-6 sm:p-8 text-center">
+              <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <h2 className="text-lg font-semibold text-white mb-2">Subscription Required</h2>
+              <p className="text-sm text-gray-400 mb-1">
+                To create Ajo groups, you need an active monthly subscription.
+              </p>
+              <p className="text-2xl font-bold text-emerald-400 mb-1">₦5,000<span className="text-sm font-normal text-gray-500">/month</span></p>
+              <p className="text-xs text-gray-500 mb-6">One subscription covers unlimited group creation for 30 days.</p>
+
+              {error && (
+                <div className="flex items-center gap-2 bg-red-500/10 text-red-400 text-sm p-3 rounded-xl border border-red-500/20 mb-4">
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {error}
+                </div>
+              )}
+
+              <button
+                onClick={handleSubscribe}
+                disabled={subPayLoading}
+                className="w-full bg-emerald-500 text-white py-3 rounded-xl text-sm font-semibold shadow-lg shadow-emerald-500/25 hover:bg-emerald-400 hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {subPayLoading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    Redirecting to payment…
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    </svg>
+                    Pay ₦5,000 to Subscribe
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Active subscription badge + form */}
+        {!subLoading && subscriptionActive && (
+          <>
+            {subscriptionEndDate && (
+              <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-400 text-xs p-3 rounded-xl border border-emerald-500/20 mb-4">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Subscription active until {new Date(subscriptionEndDate).toLocaleDateString()}
+              </div>
+            )}
 
         <form onSubmit={handleSubmit} className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] overflow-hidden">
           {error && (
@@ -223,6 +392,8 @@ export default function NewAjoGroupPage() {
             </button>
           </div>
         </form>
+          </>
+        )}
       </main>
     </div>
   );

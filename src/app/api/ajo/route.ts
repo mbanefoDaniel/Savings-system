@@ -48,6 +48,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Check for active subscription
+  const now = new Date();
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: {
+      organizerId: auth.organizerId,
+      status: "ACTIVE",
+      endDate: { gt: now },
+    },
+  });
+
+  if (!activeSubscription) {
+    return NextResponse.json(
+      { error: "Active subscription required to create a group. Please subscribe (₦5,000/month)." },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { name, description, contributionAmount, frequency, maxMembers, startDate } = body;

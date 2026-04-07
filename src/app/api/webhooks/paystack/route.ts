@@ -98,6 +98,44 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true });
       }
 
+      // ── Try Subscription payment ─────────────────────────
+      const subscription = await prisma.subscription.findUnique({
+        where: { paystackRef: reference },
+      });
+
+      if (subscription) {
+        if (subscription.status === "ACTIVE") {
+          return NextResponse.json({ received: true });
+        }
+        if (amount !== subscription.amount) {
+          console.error(
+            `Webhook: subscription amount mismatch for ${reference}. Expected ${subscription.amount}, got ${amount}`
+          );
+          await prisma.subscription.update({
+            where: { id: subscription.id },
+            data: { status: "FAILED" },
+          });
+          return NextResponse.json({ received: true });
+        }
+
+        const startDate = new Date();
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + 30);
+
+        await prisma.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: "ACTIVE",
+            startDate,
+            endDate,
+            paidAt: new Date(event.data.paid_at),
+            metadata: JSON.stringify(event.data),
+          },
+        });
+
+        return NextResponse.json({ received: true });
+      }
+
       // Unknown reference
       console.warn(`Webhook: unknown reference ${reference}`);
     }

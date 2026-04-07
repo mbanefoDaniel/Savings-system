@@ -10,16 +10,17 @@ datasource db {
 // ─── Existing: Bulk Payment Splitter ────────────────────────
 
 model Organizer {
-  id        String     @id @default(cuid())
-  email     String     @unique
-  name      String
-  phone     String?    // WhatsApp number in E.164 format, e.g. "2348012345678"
-  password  String
-  campaigns Campaign[]
-  ajoGroups AjoGroup[]
-  memberships GroupMember[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String
+  phone         String?        // WhatsApp number in E.164 format, e.g. "2348012345678"
+  password      String
+  campaigns     Campaign[]
+  ajoGroups     AjoGroup[]
+  memberships   GroupMember[]
+  subscriptions Subscription[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model Campaign {
@@ -201,5 +202,32 @@ enum PayoutStatus {
   PENDING
   PROCESSING
   COMPLETED
+  FAILED
+}
+
+// ─── Subscription: Monthly fee for creating Ajo groups ─────
+
+model Subscription {
+  id          String             @id @default(cuid())
+  organizerId String
+  organizer   Organizer          @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  amount      Int                // in kobo (500000 = ₦5,000)
+  paystackRef String             @unique
+  status      SubscriptionStatus @default(PENDING)
+  startDate   DateTime?          // set when payment succeeds
+  endDate     DateTime?          // startDate + 30 days
+  paidAt      DateTime?
+  metadata    String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([organizerId])
+  @@index([paystackRef])
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
   FAILED
 }
