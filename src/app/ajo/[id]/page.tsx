@@ -14,6 +14,9 @@ interface Member {
   id: string;
   position: number;
   status: string;
+  bankCode: string | null;
+  accountNumber: string | null;
+  accountName: string | null;
   user: User;
 }
 
@@ -84,6 +87,14 @@ export default function AjoGroupDetailPage() {
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState("");
 
+  // Bank details state
+  const [banks, setBanks] = useState<{ name: string; code: string }[]>([]);
+  const [bankCode, setBankCode] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankError, setBankError] = useState("");
+  const [bankSuccess, setBankSuccess] = useState("");
+
   const fetchGroup = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -117,6 +128,42 @@ export default function AjoGroupDetailPage() {
     fetchGroup();
   }, [fetchGroup]);
 
+  // Load bank list once
+  useEffect(() => {
+    fetch("/api/banks")
+      .then((r) => r.json())
+      .then((d) => setBanks(d.banks || []))
+      .catch(() => {});
+  }, []);
+
+  async function saveBankDetails() {
+    setBankSaving(true);
+    setBankError("");
+    setBankSuccess("");
+    const token = localStorage.getItem("token");
+    try {
+      const res = await fetch(`/api/ajo/${id}/bank`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ bankCode, accountNumber }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBankError(data.error || "Failed to save bank details");
+        return;
+      }
+      setBankSuccess(`Account verified: ${data.bank.accountName}`);
+      await fetchGroup(); // refresh member data
+    } catch {
+      setBankError("Network error. Please try again.");
+    } finally {
+      setBankSaving(false);
+    }
+  }
+
   async function doAction(action: string) {
     setActionLoading(action);
     setActionError("");
@@ -136,6 +183,32 @@ export default function AjoGroupDetailPage() {
         const err = await res.json();
         setActionError(err.error || "Action failed");
       }
+    } catch {
+      setActionError("Network error. Please try again.");
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  async function approvePayout(payoutId: string) {
+    setActionLoading("approve");
+    setActionError("");
+    const token = localStorage.getItem("token");
+    try {
+      const res = await fetch(`/api/ajo/${id}/approve-payout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ payoutId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setActionError(data.error || "Failed to approve payout");
+        return;
+      }
+      await fetchGroup();
     } catch {
       setActionError("Network error. Please try again.");
     } finally {
@@ -203,6 +276,7 @@ export default function AjoGroupDetailPage() {
   }
 
   const currentCycle = group.cycles.find((c) => c.status === "OPEN");
+  const closedCycle = group.cycles.find((c) => c.status === "CLOSED" && c.payout?.status === "PENDING");
   const statusColors: Record<string, string> = {
     PENDING: "bg-amber-500/10 text-amber-400",
     ACTIVE: "bg-emerald-500/10 text-emerald-400",
@@ -459,6 +533,120 @@ export default function AjoGroupDetailPage() {
             {myContribThisCycle && (
               <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl p-3 text-center text-sm font-medium">
                 ✓ You&apos;ve contributed this cycle
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Approve Payout Section — visible to creator when cycle is CLOSED */}
+        {closedCycle && isCreator && closedCycle.payout && (
+          <div className="bg-[#1a1d27] rounded-2xl border border-amber-500/20 p-6 sm:p-8">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-amber-400 mb-1">Payout Approval Required</h3>
+                <p className="text-sm text-gray-400">
+                  All members have contributed for Cycle #{closedCycle.cycleNumber}. Approve the payout of{" "}
+                  <span className="font-semibold text-white">{formatNaira(closedCycle.payout.amount)}</span> to{" "}
+                  <span className="font-semibold text-white">{closedCycle.payout.member.user.name}</span>.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => approvePayout(closedCycle.payout!.id)}
+              disabled={actionLoading === "approve"}
+              className="w-full bg-amber-500 text-white py-3 rounded-xl text-sm font-semibold hover:bg-amber-400 hover:shadow-lg hover:shadow-amber-500/25 hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {actionLoading === "approve" ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  Processing…
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Approve Payout
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Bank Details Section */}
+        {myMember && (
+          <div className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] p-6 sm:p-8">
+            <h2 className="text-base font-bold text-white mb-1">Bank Account for Payouts</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Add your bank details so your payout is sent directly to your account when it&apos;s your turn.
+            </p>
+
+            {myMember.accountName ? (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-400">{myMember.accountName}</p>
+                    <p className="text-xs text-gray-400">
+                      {banks.find((b) => b.code === myMember.bankCode)?.name || myMember.bankCode} · ****{myMember.accountNumber?.slice(-4)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1 block">Bank</label>
+                  <select
+                    value={bankCode}
+                    onChange={(e) => setBankCode(e.target.value)}
+                    className="w-full bg-[#232734] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  >
+                    <option value="">Select your bank</option>
+                    {banks.map((b) => (
+                      <option key={b.code} value={b.code}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-400 mb-1 block">Account Number</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ""))}
+                    placeholder="10-digit account number"
+                    className="w-full bg-[#232734] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  />
+                </div>
+
+                {bankError && (
+                  <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">{bankError}</p>
+                )}
+                {bankSuccess && (
+                  <p className="text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2">{bankSuccess}</p>
+                )}
+
+                <button
+                  onClick={saveBankDetails}
+                  disabled={bankSaving || !bankCode || accountNumber.length !== 10}
+                  className="w-full bg-emerald-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-emerald-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {bankSaving ? "Verifying account…" : "Save Bank Details"}
+                </button>
               </div>
             )}
           </div>

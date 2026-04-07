@@ -21,7 +21,7 @@ export async function GET(
       creator: { select: { id: true, name: true, email: true } },
       members: {
         orderBy: { position: "asc" },
-        include: { user: { select: { id: true, name: true, email: true } } },
+        select: { id: true, position: true, status: true, userId: true, bankCode: true, accountNumber: true, accountName: true, user: { select: { id: true, name: true, email: true } } },
       },
       cycles: {
         orderBy: { cycleNumber: "desc" },
@@ -52,7 +52,7 @@ export async function GET(
         creator: { select: { id: true, name: true, email: true } },
         members: {
           orderBy: { position: "asc" },
-          include: { user: { select: { id: true, name: true, email: true } } },
+          select: { id: true, position: true, status: true, userId: true, bankCode: true, accountNumber: true, accountName: true, user: { select: { id: true, name: true, email: true } } },
         },
         cycles: {
           orderBy: { cycleNumber: "desc" },

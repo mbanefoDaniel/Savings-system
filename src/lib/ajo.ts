@@ -1,5 +1,7 @@
 import { prisma } from "./prisma";
 import { sendContributionReminder, sendPayoutNotification } from "./whatsapp";
+import { initiateTransfer } from "./paystack";
+import { generateReference } from "./utils";
 
 /**
  * Compute the due date for a given cycle number based on the group's
@@ -111,7 +113,7 @@ export async function openNextCycle(groupId: string) {
 
 /**
  * Check if all active members have contributed for a cycle.
- * If yes, mark the cycle as CLOSED and trigger the payout.
+ * If yes, mark the cycle as CLOSED — payout still requires creator approval.
  */
 export async function tryCompleteCycle(cycleId: string) {
   const cycle = await prisma.contributionCycle.findUniqueOrThrow({
@@ -133,45 +135,91 @@ export async function tryCompleteCycle(cycleId: string) {
   const paidCount = cycle.contributions.length;
 
   if (paidCount < activeCount) {
-    // Not everyone has paid yet
     return null;
   }
 
-  // All contributions received — close cycle and mark payout for processing
-  const [updatedCycle] = await prisma.$transaction([
-    prisma.contributionCycle.update({
-      where: { id: cycleId },
-      data: { status: "PAID_OUT" },
-    }),
-    ...(cycle.payout
-      ? [
-          prisma.payoutSchedule.update({
-            where: { id: cycle.payout.id },
-            data: { status: "COMPLETED", paidAt: new Date() },
-          }),
-        ]
-      : []),
-  ]);
+  // All contributions received — close cycle, keep payout PENDING for creator approval
+  await prisma.contributionCycle.update({
+    where: { id: cycleId },
+    data: { status: "CLOSED" },
+  });
 
-  // Send WhatsApp payout notification to the recipient
-  if (cycle.payout) {
-    const recipient = await prisma.groupMember.findUnique({
-      where: { id: cycle.payout.memberId },
-      include: { user: { select: { phone: true, name: true } } },
-    });
+  return { cycleId, status: "AWAITING_APPROVAL" };
+}
 
-    if (recipient?.user.phone) {
-      const formattedAmount = `₦${(cycle.payout.amount / 100).toLocaleString()}`;
-      sendPayoutNotification({
-        phone: recipient.user.phone,
-        groupName: cycle.group.name ?? "Ajo Group",
-        amount: formattedAmount,
-        recipientName: recipient.user.name,
-      }).catch((err) => console.error(`[WhatsApp] Payout notification failed:`, err));
-    }
+/**
+ * Approve and initiate the payout for a completed cycle.
+ * Only the group creator should call this.
+ */
+export async function approvePayout(payoutId: string) {
+  const payout = await prisma.payoutSchedule.findUniqueOrThrow({
+    where: { id: payoutId },
+    include: {
+      member: {
+        include: { user: { select: { phone: true, name: true } } },
+      },
+      cycle: {
+        include: { group: true },
+      },
+    },
+  });
+
+  if (payout.status !== "PENDING") {
+    throw new Error(`Payout is already ${payout.status}`);
   }
 
-  return updatedCycle;
+  const payoutMember = payout.member;
+  const group = payout.cycle.group;
+
+  if (payoutMember.recipientCode) {
+    // Initiate real bank transfer via Paystack
+    const transferRef = `ajo_payout_${generateReference()}`;
+    try {
+      const transfer = await initiateTransfer({
+        amount: payout.amount,
+        recipient: payoutMember.recipientCode,
+        reason: `Ajo payout - ${group.name} Cycle #${payout.cycle.cycleNumber}`,
+        reference: transferRef,
+      });
+
+      await prisma.$transaction([
+        prisma.contributionCycle.update({
+          where: { id: payout.cycleId },
+          data: { status: "PAID_OUT" },
+        }),
+        prisma.payoutSchedule.update({
+          where: { id: payout.id },
+          data: {
+            status: "PROCESSING",
+            transferCode: transfer.data.transfer_code,
+            transferRef,
+          },
+        }),
+      ]);
+
+      // WhatsApp notification
+      if (payoutMember.user.phone) {
+        const formattedAmount = `₦${(payout.amount / 100).toLocaleString()}`;
+        sendPayoutNotification({
+          phone: payoutMember.user.phone,
+          groupName: group.name ?? "Ajo Group",
+          amount: formattedAmount,
+          recipientName: payoutMember.user.name,
+        }).catch((err) => console.error(`[WhatsApp] Payout notification failed:`, err));
+      }
+
+      return { status: "PROCESSING", transferCode: transfer.data.transfer_code };
+    } catch (err) {
+      console.error(`[Ajo] Transfer failed for payout ${payout.id}:`, err);
+      await prisma.payoutSchedule.update({
+        where: { id: payout.id },
+        data: { status: "FAILED", transferRef },
+      });
+      throw new Error("Transfer failed — please retry");
+    }
+  } else {
+    throw new Error("Recipient has not added bank details yet");
+  }
 }
 
 /**

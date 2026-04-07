@@ -113,6 +113,10 @@ model GroupMember {
   user          Organizer      @relation(fields: [userId], references: [id], onDelete: Cascade)
   position      Int            // payout order: 1, 2, 3, ... (assigned on join or by creator)
   status        MemberStatus   @default(ACTIVE)
+  bankCode      String?        // Paystack bank code e.g. "058"
+  accountNumber String?        // 10-digit NUBAN
+  accountName   String?        // resolved account name from Paystack
+  recipientCode String?        // Paystack transfer recipient code
   joinedAt      DateTime       @default(now())
   contributions AjoContribution[]
   payouts       PayoutSchedule[]
@@ -174,18 +178,20 @@ model AjoContribution {
 }
 
 model PayoutSchedule {
-  id          String        @id @default(cuid())
-  groupId     String
-  group       AjoGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  cycleId     String        @unique
-  cycle       ContributionCycle @relation(fields: [cycleId], references: [id])
-  memberId    String
-  member      GroupMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  amount      Int           // total payout in kobo
-  status      PayoutStatus  @default(PENDING)
-  paidAt      DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id            String        @id @default(cuid())
+  groupId       String
+  group         AjoGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  cycleId       String        @unique
+  cycle         ContributionCycle @relation(fields: [cycleId], references: [id])
+  memberId      String
+  member        GroupMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  amount        Int           // total payout in kobo
+  status        PayoutStatus  @default(PENDING)
+  transferCode  String?       // Paystack transfer code e.g. "TRF_xxx"
+  transferRef   String?       // unique reference for the transfer
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@index([groupId])
   @@index([memberId])

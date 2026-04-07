@@ -102,6 +102,33 @@ export async function POST(req: NextRequest) {
       console.warn(`Webhook: unknown reference ${reference}`);
     }
 
+    // ── Handle transfer events (payouts) ──────────────────
+    if (event.event === "transfer.success") {
+      const { reference } = event.data;
+      const payout = await prisma.payoutSchedule.findFirst({
+        where: { transferRef: reference },
+      });
+      if (payout && payout.status !== "COMPLETED") {
+        await prisma.payoutSchedule.update({
+          where: { id: payout.id },
+          data: { status: "COMPLETED", paidAt: new Date() },
+        });
+      }
+    }
+
+    if (event.event === "transfer.failed" || event.event === "transfer.reversed") {
+      const { reference } = event.data;
+      const payout = await prisma.payoutSchedule.findFirst({
+        where: { transferRef: reference },
+      });
+      if (payout && payout.status !== "FAILED") {
+        await prisma.payoutSchedule.update({
+          where: { id: payout.id },
+          data: { status: "FAILED" },
+        });
+      }
+    }
+
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error("Webhook processing error:", error);
