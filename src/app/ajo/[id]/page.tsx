@@ -337,6 +337,46 @@ export default function AjoGroupDetailPage() {
           </div>
         </div>
 
+        {/* Waiting message for non-creator members in PENDING group */}
+        {group.status === "PENDING" && !isCreator && myMember && (
+          <div className="bg-[#1a1d27] rounded-2xl border border-amber-500/20 p-6 sm:p-8">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-amber-400 mb-1">Waiting for group to start</h3>
+                <p className="text-sm text-gray-400">
+                  You&apos;ve joined successfully! The group creator will start the Ajo once enough members have joined
+                  ({group.members.length} / {group.maxMembers} so far). You&apos;ll be able to contribute once the first cycle opens.
+                </p>
+                <p className="text-xs text-gray-500 mt-2">Your payout position: <span className="text-violet-400 font-semibold">#{myMember.position}</span></p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Info for ACTIVE group with no open cycle */}
+        {group.status === "ACTIVE" && !currentCycle && myMember && (
+          <div className="bg-[#1a1d27] rounded-2xl border border-teal-500/20 p-6 sm:p-8">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-teal-400 mb-1">No open cycle right now</h3>
+                <p className="text-sm text-gray-400">
+                  The current cycle has been completed. The group creator will open the next cycle soon — check back shortly!
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Current Cycle + Contribute */}
         {currentCycle && (
           <div className="bg-[#1a1d27] rounded-2xl border border-white/[0.06] p-6 sm:p-8">
