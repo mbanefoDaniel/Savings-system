@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Existing: Bulk Payment Splitter ────────────────────────
+
+model Organizer {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String
+  phone     String?    // WhatsApp number in E.164 format, e.g. "2348012345678"
+  password  String
+  campaigns Campaign[]
+  ajoGroups AjoGroup[]
+  memberships GroupMember[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Campaign {
+  id              String         @id @default(cuid())
+  slug            String         @unique
+  title           String
+  description     String?
+  targetAmount    Int            // stored in kobo (smallest unit)
+  collectedAmount Int            @default(0)
+  fixedAmount     Int?           // if set, contributors pay this exact amount (kobo)
+  currency        String         @default("NGN")
+  deadline        DateTime?
+  isActive        Boolean        @default(true)
+  showContributors Boolean       @default(true)
+  organizerId     String
+  organizer       Organizer      @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  contributions   Contribution[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([organizerId])
+  @@index([slug])
+}
+
+model Contribution {
+  id              String            @id @default(cuid())
+  campaignId      String
+  campaign        Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contributorName String
+  contributorEmail String
+  amount          Int               // in kobo
+  paystackRef     String            @unique
+  status          ContributionStatus @default(PENDING)
+  paidAt          DateTime?
+  metadata        String?           // JSON string for extra Paystack data
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([campaignId])
+  @@index([paystackRef])
+}
+
+enum ContributionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+// ─── Ajo / Esusu: Rotational Savings ───────────────────────
+
+model AjoGroup {
+  id                String          @id @default(cuid())
+  slug              String          @unique
+  name              String
+  description       String?
+  contributionAmount Int            // fixed amount per cycle, in kobo
+  frequency         AjoFrequency    // DAILY or WEEKLY
+  maxMembers        Int             // total slots
+  startDate         DateTime
+  status            AjoGroupStatus  @default(PENDING)
+  currentCycleNum   Int             @default(0) // which cycle we're on (0 = not started)
+  creatorId         String
+  creator           Organizer       @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  members           GroupMember[]
+  cycles            ContributionCycle[]
+  payoutSchedule    PayoutSchedule[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([creatorId])
+  @@index([slug])
+}
+
+enum AjoFrequency {
+  DAILY
+  WEEKLY
+}
+
+enum AjoGroupStatus {
+  PENDING   // waiting for members to fill
+  ACTIVE    // running cycles
+  COMPLETED // all cycles done, all payouts made
+  CANCELLED
+}
+
+model GroupMember {
+  id            String         @id @default(cuid())
+  groupId       String
+  group         AjoGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId        String
+  user          Organizer      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  position      Int            // payout order: 1, 2, 3, ... (assigned on join or by creator)
+  status        MemberStatus   @default(ACTIVE)
+  joinedAt      DateTime       @default(now())
+  contributions AjoContribution[]
+  payouts       PayoutSchedule[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([groupId, userId])
+  @@unique([groupId, position])
+  @@index([groupId])
+  @@index([userId])
+}
+
+enum MemberStatus {
+  ACTIVE
+  DEFAULTED
+  REMOVED
+}
+
+model ContributionCycle {
+  id            String            @id @default(cuid())
+  groupId       String
+  group         AjoGroup          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  cycleNumber   Int               // 1, 2, 3, ...
+  dueDate       DateTime          // when contributions are due
+  status        CycleStatus       @default(OPEN)
+  contributions AjoContribution[]
+  payout        PayoutSchedule?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([groupId, cycleNumber])
+  @@index([groupId])
+}
+
+enum CycleStatus {
+  OPEN       // accepting contributions
+  CLOSED     // all paid or past due
+  PAID_OUT   // payout has been triggered
+}
+
+model AjoContribution {
+  id          String                @id @default(cuid())
+  cycleId     String
+  cycle       ContributionCycle     @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  memberId    String
+  member      GroupMember           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  amount      Int                   // in kobo — should equal group.contributionAmount
+  paystackRef String                @unique
+  status      ContributionStatus    @default(PENDING)
+  paidAt      DateTime?
+  metadata    String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@unique([cycleId, memberId])
+  @@index([cycleId])
+  @@index([memberId])
+  @@index([paystackRef])
+}
+
+model PayoutSchedule {
+  id          String        @id @default(cuid())
+  groupId     String
+  group       AjoGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  cycleId     String        @unique
+  cycle       ContributionCycle @relation(fields: [cycleId], references: [id])
+  memberId    String
+  member      GroupMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  amount      Int           // total payout in kobo
+  status      PayoutStatus  @default(PENDING)
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([groupId])
+  @@index([memberId])
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
